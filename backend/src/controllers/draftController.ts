@@ -14,6 +14,7 @@ const saveDraftPostSchema = z.object({
   imageUrl: z.string().url().optional(),
   tags: z.array(z.string()).optional(),
   isSpoiler: z.boolean().optional(),
+  isNsfw: z.boolean().optional(),
   isOc: z.boolean().optional(),
   pollOptions: z.array(z.string()).optional(),
 });
@@ -54,6 +55,7 @@ export const saveDraftPost = asyncHandler(
         imageUrl: body.imageUrl,
         tags: body.tags,
         isSpoiler: body.isSpoiler,
+        isNsfw: body.isNsfw,
         isOc: body.isOc,
         poll,
         lastSavedAt: new Date(),
@@ -73,6 +75,7 @@ export const saveDraftPost = asyncHandler(
         imageUrl: body.imageUrl,
         tags: body.tags ?? [],
         isSpoiler: body.isSpoiler ?? false,
+        isNsfw: body.isNsfw ?? false,
         isOc: body.isOc ?? false,
         poll,
         lastSavedAt: new Date(),

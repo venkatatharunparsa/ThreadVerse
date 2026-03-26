@@ -1,13 +1,15 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { badRequest, notFound } from "../utils/errors.js";
+import { ApiError, badRequest, notFound } from "../utils/errors.js";
 import { Post } from "../models/Post.js";
 import { Community } from "../models/Community.js";
+import { Membership } from "../models/Membership.js";
 import { User } from "../models/User.js";
 import type { AuthenticatedRequest } from "../middleware/auth.js";
 import { Vote } from "../models/Vote.js";
 import { updateUserKarma, updateCommunityReputation, incrementCommunityContentCount } from "../utils/karma.js";
+import { calculateAndUpdateTrustLevel } from "../utils/trustLevel.js";
 
 const createPostSchema = z.object({
   community: z.string().min(3).optional(),
@@ -18,6 +20,7 @@ const createPostSchema = z.object({
   imageUrl: z.string().url().nullable().optional(),
   tags: z.array(z.string()).optional(),
   isSpoiler: z.boolean().optional(),
+  isNsfw: z.boolean().optional(),
   isOc: z.boolean().optional(),
   pollOptions: z.array(z.string().min(1)).max(4).nullable().optional(),
 });
@@ -28,10 +31,49 @@ const listPostsSchema = z.object({
   limit: z.coerce.number().min(1).max(50).default(20),
 });
 
+const autoFillSchema = z.object({
+  prompt: z.string().min(3).max(500),
+  tone: z.enum(["casual", "professional", "funny", "serious", "excited"]).optional(),
+  length: z.enum(["short", "medium", "long"]).optional(),
+});
+
+const autoFillResponseSchema = z.object({
+  title: z.string().min(1).max(300),
+  body: z.string().min(1).max(5000),
+});
+
+const detectSpoiler = (title: string, body?: string | null): boolean => {
+  const keywords = [
+    "coming", "dead", "released", "leaked", "spoiler", "ending", 
+    "leak", "death", "dies", "outcome", "twist", "reveal"
+  ];
+  const content = `${title} ${body ?? ""}`.toLowerCase();
+  return keywords.some(keyword => content.includes(keyword));
+};
+
+const detectNsfw = (title: string, body?: string | null): boolean => {
+  const keywords = [
+    "nsfw", "18+", "adult", "gore", "violence", "blood", 
+    "nude", "naked", "sex", "porn", "explicit"
+  ];
+  const content = `${title} ${body ?? ""}`.toLowerCase();
+  return keywords.some(keyword => content.includes(keyword));
+};
+
 export const createPost = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const body = createPostSchema.parse(req.body);
     const userId = req.user!.id;
+
+    let isSpoiler = body.isSpoiler ?? false;
+    if (!isSpoiler) {
+      isSpoiler = detectSpoiler(body.title, body.body);
+    }
+
+    let isNsfw = body.isNsfw ?? false;
+    if (!isNsfw) {
+      isNsfw = detectNsfw(body.title, body.body);
+    }
 
     let communityId: any = null;
     
@@ -42,6 +84,17 @@ export const createPost = asyncHandler(
       if (!community.allowedPostTypes.includes(body.type)) {
         throw badRequest("Post type not allowed in this community");
       }
+      
+      // Check if user is a member of the community
+      const membership = await Membership.findOne({
+        userId,
+        communityId: community._id,
+      });
+      
+      if (!membership) {
+        throw badRequest("You must be a member of this community to post in it");
+      }
+      
       communityId = community._id;
     }
 
@@ -64,7 +117,8 @@ export const createPost = asyncHandler(
       linkUrl: body.linkUrl ?? null,
       imageUrl: body.imageUrl ?? null,
       tags: body.tags ?? [],
-      isSpoiler: body.isSpoiler ?? false,
+      isSpoiler,
+      isNsfw,
       isOc: body.isOc ?? false,
       poll,
     });
@@ -143,6 +197,13 @@ export const getPost = asyncHandler(async (req: Request, res: Response) => {
   res.json({ post: formatted });
 });
 
+export const autoFillPost = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    autoFillSchema.parse(req.body);
+    throw new ApiError(501, "Auto-fill is currently disabled");
+  }
+);
+
 export const votePost = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
@@ -198,9 +259,17 @@ export const votePost = asyncHandler(
     post.voteScore += delta;
     await post.save();
 
-    // Update author's karma
-    await updateUserKarma(post.authorId, delta, "post");
-    await updateCommunityReputation(post.authorId, post.communityId, delta, "post");
+    // Update author's karma and trust level
+    const authorId = post.authorId.toString();
+    await updateUserKarma(authorId, delta, "post");
+    await updateCommunityReputation(authorId, post.communityId, delta, "post");
+    
+    // Recalculate trust level after karma update
+    try {
+      await calculateAndUpdateTrustLevel(authorId);
+    } catch (error) {
+      console.error("Error updating trust level:", error);
+    }
 
     res.json({ voteScore: post.voteScore, upvotes: post.upvoteCount, downvotes: post.downvoteCount });
   }
@@ -211,6 +280,7 @@ const updatePostSchema = z.object({
   body: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   isSpoiler: z.boolean().optional(),
+  isNsfw: z.boolean().optional(),
   isOc: z.boolean().optional(),
 });
 
@@ -232,7 +302,22 @@ export const updatePost = asyncHandler(
     if (body.body !== undefined) post.body = body.body ?? "";
     if (body.tags !== undefined) post.tags = body.tags;
     if (body.isSpoiler !== undefined) post.isSpoiler = body.isSpoiler;
+    if (body.isNsfw !== undefined) post.isNsfw = body.isNsfw;
     if (body.isOc !== undefined) post.isOc = body.isOc;
+
+    // Re-check auto-spoiler if title or body updated and not explicitly set to false
+    if ((body.title !== undefined || body.body !== undefined) && body.isSpoiler === undefined) {
+      if (!post.isSpoiler) {
+        post.isSpoiler = detectSpoiler(post.title, post.body);
+      }
+    }
+
+    // Re-check auto-nsfw if title or body updated and not explicitly set to false
+    if ((body.title !== undefined || body.body !== undefined) && body.isNsfw === undefined) {
+      if (!post.isNsfw) {
+        post.isNsfw = detectNsfw(post.title, post.body);
+      }
+    }
 
     await post.save();
 

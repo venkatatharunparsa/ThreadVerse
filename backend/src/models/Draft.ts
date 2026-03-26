@@ -26,6 +26,7 @@ const draftSchema = new Schema(
     imageUrl: { type: String },
     tags: [{ type: String }],
     isSpoiler: { type: Boolean, default: false },
+    isNsfw: { type: Boolean, default: false },
     isOc: { type: Boolean, default: false },
     poll: {
       options: [pollOptionSchema],

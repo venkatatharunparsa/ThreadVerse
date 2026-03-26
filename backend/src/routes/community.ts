@@ -10,6 +10,7 @@ import {
   getMembers,
   getUserCommunities,
   checkMembership,
+  updateMemberRole,
 } from "../controllers/communityController.js";
 import { requireAuth, optionalAuth } from "../middleware/auth.js";
 
@@ -25,5 +26,6 @@ router.post("/:name/join", requireAuth, joinCommunity);
 router.delete("/:name/join", requireAuth, leaveCommunity);
 router.get("/:name/join-requests", requireAuth, getJoinRequests);
 router.post("/:name/join-requests/:requestId", requireAuth, handleJoinRequest);
+router.post(":name/members/:memberId/role", requireAuth, updateMemberRole);
 
 export default router;

@@ -3,6 +3,7 @@ import {
   createPost,
   getPost,
   listPosts,
+  autoFillPost,
   votePost,
   updatePost,
   deletePost,
@@ -13,6 +14,7 @@ import { requireAuth } from "../middleware/auth.js";
 const router = Router();
 
 router.get("/", listPosts);
+router.post("/auto-fill", requireAuth, autoFillPost);
 router.post("/", requireAuth, createPost);
 router.get("/user/:username", listUserPosts);
 router.get("/:id", getPost);

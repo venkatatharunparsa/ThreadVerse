@@ -7,6 +7,7 @@ import { Post } from "../models/Post.js";
 import type { AuthenticatedRequest } from "../middleware/auth.js";
 import { Vote } from "../models/Vote.js";
 import { updateUserKarma, updateCommunityReputation, incrementCommunityContentCount } from "../utils/karma.js";
+import { calculateAndUpdateTrustLevel } from "../utils/trustLevel.js";
 
 const createCommentSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -157,13 +158,21 @@ export const voteComment = asyncHandler(
     comment.voteScore += delta;
     await comment.save();
 
-    // Update author's karma
-    await updateUserKarma(comment.authorId, delta, "comment");
+    // Update author's karma and trust level
+    const authorId = comment.authorId.toString();
+    await updateUserKarma(authorId, delta, "comment");
     
     // Get post to find community for reputation update
     const post = await Post.findById(comment.postId, "communityId");
     if (post?.communityId) {
-      await updateCommunityReputation(comment.authorId, post.communityId, delta, "comment");
+      await updateCommunityReputation(authorId, post.communityId, delta, "comment");
+    }
+    
+    // Recalculate trust level after karma update
+    try {
+      await calculateAndUpdateTrustLevel(authorId);
+    } catch (error) {
+      console.error("Error updating trust level:", error);
     }
 
     res.json({ voteScore: comment.voteScore, upvotes: comment.upvoteCount, downvotes: comment.downvoteCount });

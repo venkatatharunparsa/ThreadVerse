@@ -103,7 +103,7 @@ export const joinCommunity = asyncHandler(
 
     // Check if community is private
     if (community.isPrivate) {
-      // Check if there's already a pending request
+      // Check if there's already a pending or rejected request
       const existingRequest = await JoinRequest.findOne({
         userId: req.user!.id,
         communityId: community._id,
@@ -111,28 +111,46 @@ export const joinCommunity = asyncHandler(
 
       if (existingRequest) {
         if (existingRequest.status === "pending") {
-          throw badRequest("You already have a pending join request for this community");
+          res.json({
+            joined: false,
+            status: "pending",
+            message: "You already have a pending join request for this community.",
+          });
+          return;
         } else if (existingRequest.status === "rejected") {
-          throw badRequest("Your join request was rejected. Please contact moderators.");
+          existingRequest.status = "pending";
+          await existingRequest.save();
+        } else if (existingRequest.status === "approved") {
+          // Safety: if request shows approved but membership missing, fall through to membership creation
+          await existingRequest.deleteOne();
         }
+      } else {
+        // Create join request
+        await JoinRequest.create({
+          userId: req.user!.id,
+          communityId: community._id,
+          status: "pending",
+        });
       }
 
-      // Create join request
-      await JoinRequest.create({
-        userId: req.user!.id,
-        communityId: community._id,
-        status: "pending",
-      });
+      // Notify community creator and moderators about the new request
+      const recipients = [community.createdBy, ...(community.moderators || [])]
+        .filter(Boolean)
+        .map((id) => id.toString());
+      const uniqueRecipientIds = Array.from(new Set(recipients));
 
-      // Notify community creator/moderators
-      await Notification.create({
-        userId: community.createdBy,
-        type: "join_request",
-        title: "New join request",
-        message: `Someone wants to join r/${community.name}`,
-        relatedUserId: req.user!.id,
-        relatedCommunityId: community._id,
-      });
+      if (uniqueRecipientIds.length) {
+        await Notification.insertMany(
+          uniqueRecipientIds.map((userId) => ({
+            userId,
+            type: "join_request",
+            title: "New join request",
+            message: `Someone wants to join r/${community.name}`,
+            relatedUserId: req.user!.id,
+            relatedCommunityId: community._id,
+          }))
+        );
+      }
 
       res.json({
         joined: false,
@@ -311,11 +329,77 @@ export const checkMembership = asyncHandler(
       userId,
       communityId: community._id,
     });
+
+    const pendingRequest = await JoinRequest.findOne({
+      userId,
+      communityId: community._id,
+      status: "pending",
+    });
     
     res.json({ 
       isMember: !!membership,
       role: membership?.role || null,
       joinedAt: membership?.createdAt || null,
+      pendingRequest: !!pendingRequest,
+      requestStatus: pendingRequest?.status || null,
     });
+  }
+);
+
+export const updateMemberRole = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { name, memberId } = req.params;
+    const { role } = req.body; // "moderator" | "member"
+
+    const community = await Community.findOne({ name });
+    if (!community) throw notFound("Community not found");
+
+    // Only the community owner can manage admin roles
+    if (community.createdBy?.toString() !== req.user!.id) {
+      throw badRequest("Only the community owner can manage admin roles");
+    }
+
+    const membership = await Membership.findOne({
+      userId: memberId,
+      communityId: community._id,
+    });
+
+    if (!membership) {
+      throw badRequest("User must be a community member before changing roles");
+    }
+    if (membership.role === "owner") {
+      throw badRequest("Owner role cannot be changed");
+    }
+
+    if (role === "moderator") {
+      membership.role = "moderator";
+    } else if (role === "member") {
+      membership.role = "member";
+    } else {
+      throw badRequest("Invalid role");
+    }
+
+    await membership.save();
+
+    // Keep moderators array in sync with membership roles
+    const currentModerators = await Membership.find({
+      communityId: community._id,
+      role: "moderator",
+    }).select("userId");
+    community.moderators = currentModerators.map((m: any) => m.userId);
+    await community.save();
+
+    await Notification.create({
+      userId: memberId,
+      type: role === "moderator" ? "promoted_to_admin" : "removed_from_admin",
+      title: role === "moderator" ? "You are now an admin" : "Admin access removed",
+      message:
+        role === "moderator"
+          ? `You were promoted to admin in r/${community.name}`
+          : `Your admin access was removed in r/${community.name}`,
+      relatedCommunityId: community._id,
+    });
+
+    res.json({ success: true, role: membership.role });
   }
 );

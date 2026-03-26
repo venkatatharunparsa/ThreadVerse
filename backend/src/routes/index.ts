@@ -10,6 +10,7 @@ import uploadRouter from "./upload.js";
 import draftsRouter from "./drafts.js";
 import analyticsRouter from "./analytics.js";
 import trustRouter from "./trust.js";
+import errorsRouter from "./errors.js";
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.use("/upload", uploadRouter);
 router.use("/drafts", draftsRouter);
 router.use("/analytics", analyticsRouter);
 router.use("/trust", trustRouter);
+router.use(errorsRouter);
 
 export default router;
