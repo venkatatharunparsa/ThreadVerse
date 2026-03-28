@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError, badRequest, notFound } from "../utils/errors.js";
@@ -10,6 +11,7 @@ import type { AuthenticatedRequest } from "../middleware/auth.js";
 import { Vote } from "../models/Vote.js";
 import { updateUserKarma, updateCommunityReputation, incrementCommunityContentCount } from "../utils/karma.js";
 import { calculateAndUpdateTrustLevel } from "../utils/trustLevel.js";
+import { generatePostDraftWithGroq } from "../utils/groq.js";
 
 const createPostSchema = z.object({
   community: z.string().min(3).optional(),
@@ -40,6 +42,9 @@ const autoFillSchema = z.object({
 const autoFillResponseSchema = z.object({
   title: z.string().min(1).max(300),
   body: z.string().min(1).max(5000),
+  tags: z.array(z.string().min(1).max(24)).max(6).optional().default([]),
+  isSpoiler: z.boolean().optional(),
+  isNsfw: z.boolean().optional(),
 });
 
 const detectSpoiler = (title: string, body?: string | null): boolean => {
@@ -58,6 +63,43 @@ const detectNsfw = (title: string, body?: string | null): boolean => {
   ];
   const content = `${title} ${body ?? ""}`.toLowerCase();
   return keywords.some(keyword => content.includes(keyword));
+};
+
+const buildLocalAutoFillDraft = (prompt: string, tone: string, length: string) => {
+  const cleanPrompt = prompt.trim().replace(/\s+/g, " ");
+  const title = (cleanPrompt.length > 70
+    ? `${cleanPrompt.slice(0, 67).trim()}...`
+    : cleanPrompt || "Post idea").slice(0, 300);
+
+  const lengthHints: Record<string, string> = {
+    short: "Keep it concise in 1-2 short paragraphs.",
+    medium: "Use 2-3 short paragraphs with one clear key point.",
+    long: "Use multiple short paragraphs and include brief bullet points where useful.",
+  };
+
+  const body = [
+    `I want to share something about: ${cleanPrompt}.`,
+    `Tone requested: ${tone}. ${lengthHints[length] ?? lengthHints.medium}`,
+    "What do you think? I would love to hear your opinions and suggestions.",
+  ].join("\n\n").slice(0, 5000);
+
+  const tags = Array.from(
+    new Set(
+      cleanPrompt
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((word) => word.length >= 3)
+    )
+  ).slice(0, 6);
+
+  return {
+    title,
+    body,
+    tags,
+    isSpoiler: detectSpoiler(title, body),
+    isNsfw: detectNsfw(title, body),
+  };
 };
 
 export const createPost = asyncHandler(
@@ -199,8 +241,38 @@ export const getPost = asyncHandler(async (req: Request, res: Response) => {
 
 export const autoFillPost = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    autoFillSchema.parse(req.body);
-    throw new ApiError(501, "Auto-fill is currently disabled");
+    const { prompt, tone, length } = autoFillSchema.parse(req.body);
+    let aiRaw: unknown;
+    try {
+      aiRaw = await generatePostDraftWithGroq({ prompt, tone, length });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 429) {
+        console.warn("[groq] using local auto-fill fallback due to 429/quota limit");
+        aiRaw = buildLocalAutoFillDraft(prompt, tone ?? "casual", length ?? "medium");
+      } else {
+        throw error;
+      }
+    }
+
+    const aiDraft = autoFillResponseSchema.parse(aiRaw);
+
+    const title = aiDraft.title.trim();
+    const body = aiDraft.body.trim();
+    const tags = (aiDraft.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+
+    const detectedSpoiler = detectSpoiler(title, body);
+    const detectedNsfw = detectNsfw(title, body);
+
+    res.json({
+      draft: {
+        type: "text",
+        title,
+        body,
+        tags,
+        isSpoiler: aiDraft.isSpoiler ?? detectedSpoiler,
+        isNsfw: aiDraft.isNsfw ?? detectedNsfw,
+      },
+    });
   }
 );
 
@@ -262,7 +334,14 @@ export const votePost = asyncHandler(
     // Update author's karma and trust level
     const authorId = post.authorId.toString();
     await updateUserKarma(authorId, delta, "post");
-    await updateCommunityReputation(authorId, post.communityId, delta, "post");
+    if (post.communityId) {
+      await updateCommunityReputation(
+        authorId,
+        post.communityId as Types.ObjectId,
+        delta,
+        "post"
+      );
+    }
     
     // Recalculate trust level after karma update
     try {

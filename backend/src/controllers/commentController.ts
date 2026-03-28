@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { badRequest, notFound } from "../utils/errors.js";
@@ -90,7 +91,11 @@ export const createComment = asyncHandler(
 
     // Track content creation in community reputation
     if (post.communityId) {
-      await incrementCommunityContentCount(req.user!.id, post.communityId, "comment");
+      await incrementCommunityContentCount(
+        req.user!.id,
+        post.communityId as Types.ObjectId,
+        "comment"
+      );
     }
 
     res.status(201).json({
@@ -165,7 +170,12 @@ export const voteComment = asyncHandler(
     // Get post to find community for reputation update
     const post = await Post.findById(comment.postId, "communityId");
     if (post?.communityId) {
-      await updateCommunityReputation(authorId, post.communityId, delta, "comment");
+      await updateCommunityReputation(
+        authorId,
+        post.communityId as Types.ObjectId,
+        delta,
+        "comment"
+      );
     }
     
     // Recalculate trust level after karma update

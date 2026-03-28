@@ -48,7 +48,6 @@ const trustLevelSchema = new Schema(
   { timestamps: true }
 );
 
-trustLevelSchema.index({ userId: 1 });
 trustLevelSchema.index({ level: 1 });
 trustLevelSchema.index({ trustScore: -1 });
 trustLevelSchema.index({ createdAt: -1 });

@@ -39,7 +39,7 @@ export const listCommunities = asyncHandler(async (req: Request, res: Response) 
       
       if (aJoined && !bJoined) return -1;
       if (!aJoined && bJoined) return 1;
-      return (b.memberCount || 0) - (a.memberCount || 0);
+      return Number(b.memberCount ?? 0) - Number(a.memberCount ?? 0);
     });
   } else {
     communities = await Community.find().sort({ memberCount: -1 }).limit(50);
@@ -136,7 +136,7 @@ export const joinCommunity = asyncHandler(
       // Notify community creator and moderators about the new request
       const recipients = [community.createdBy, ...(community.moderators || [])]
         .filter(Boolean)
-        .map((id) => id.toString());
+        .map((id) => id!.toString());
       const uniqueRecipientIds = Array.from(new Set(recipients));
 
       if (uniqueRecipientIds.length) {
@@ -386,8 +386,10 @@ export const updateMemberRole = asyncHandler(
       communityId: community._id,
       role: "moderator",
     }).select("userId");
-    community.moderators = currentModerators.map((m: any) => m.userId);
-    await community.save();
+    const moderatorIds = currentModerators.map((m: any) => m.userId);
+    await Community.findByIdAndUpdate(community._id, {
+      $set: { moderators: moderatorIds },
+    });
 
     await Notification.create({
       userId: memberId,

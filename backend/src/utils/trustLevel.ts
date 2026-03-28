@@ -147,6 +147,7 @@ export async function getTrustCalculationInputs(
 ): Promise<TrustCalculationInputs> {
   const user = await User.findById(userId);
   if (!user) throw new Error("User not found");
+  const userKarma = user.karma as { post?: number; comment?: number } | undefined;
 
   // Get account age
   const accountAgeDays = calculateAccountAgeDays(user.createdAt);
@@ -172,9 +173,9 @@ export async function getTrustCalculationInputs(
   );
 
   return {
-    totalKarma: (user.karma?.post || 0) + (user.karma?.comment || 0),
-    postKarma: user.karma?.post || 0,
-    commentKarma: user.karma?.comment || 0,
+    totalKarma: (userKarma?.post || 0) + (userKarma?.comment || 0),
+    postKarma: userKarma?.post || 0,
+    commentKarma: userKarma?.comment || 0,
     accountAgeDays,
     reportsReceived,
     reportsAccepted,

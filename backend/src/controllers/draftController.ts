@@ -1,17 +1,38 @@
 import type { Request, Response } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { badRequest, notFound } from "../utils/errors.js";
 import { Draft } from "../models/Draft.js";
 import type { AuthenticatedRequest } from "../middleware/auth.js";
 
+const optionalTrimmedString = z.preprocess(
+  (value) => {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+  },
+  z.string().optional()
+);
+
+const optionalUrlString = z.preprocess(
+  (value) => {
+    if (value === null || value === undefined) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+  },
+  z.string().url().optional()
+);
+
 const saveDraftPostSchema = z.object({
-  communityId: z.string().optional(),
+  communityId: optionalTrimmedString,
   postType: z.enum(["text", "link", "image", "poll"]).optional(),
-  title: z.string().optional(),
-  body: z.string().optional(),
-  linkUrl: z.string().url().optional(),
-  imageUrl: z.string().url().optional(),
+  title: optionalTrimmedString,
+  body: optionalTrimmedString,
+  linkUrl: optionalUrlString,
+  imageUrl: optionalUrlString,
   tags: z.array(z.string()).optional(),
   isSpoiler: z.boolean().optional(),
   isNsfw: z.boolean().optional(),
@@ -27,9 +48,23 @@ const saveDraftCommentSchema = z.object({
 
 export const saveDraftPost = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    const body = saveDraftPostSchema.parse(req.body);
+    const parsed = saveDraftPostSchema.safeParse(req.body);
+    if (!parsed.success) {
+      console.warn("[drafts] saveDraftPost validation failed", {
+        issues: parsed.error.issues,
+        payload: req.body,
+      });
+      const firstIssue = parsed.error.issues[0];
+      const path = firstIssue?.path?.join(".") || "payload";
+      throw badRequest(`Invalid draft field: ${path}`);
+    }
+
+    const body = parsed.data;
     const userId = req.user!.id;
     const { id } = req.params;
+    const normalizedCommunityId = body.communityId && Types.ObjectId.isValid(body.communityId)
+      ? body.communityId
+      : undefined;
 
     const poll = body.postType === "poll" && body.pollOptions
       ? {
@@ -47,7 +82,7 @@ export const saveDraftPost = asyncHandler(
       if (!draft) throw notFound("Draft not found");
 
       Object.assign(draft, {
-        communityId: body.communityId,
+        communityId: normalizedCommunityId,
         postType: body.postType,
         title: body.title,
         body: body.body,
@@ -67,7 +102,7 @@ export const saveDraftPost = asyncHandler(
       draft = await Draft.create({
         userId,
         type: "post",
-        communityId: body.communityId,
+        communityId: normalizedCommunityId,
         postType: body.postType,
         title: body.title,
         body: body.body,

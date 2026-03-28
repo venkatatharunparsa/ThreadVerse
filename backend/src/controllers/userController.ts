@@ -181,7 +181,7 @@ export const getUserCommunityReputation = asyncHandler(async (req: Request, res:
   res.json({ 
     username: user.username,
     communityName: community.name,
-    communityDisplayName: community.displayName,
+    communityDisplayName: community.name,
     reputation,
   });
 });

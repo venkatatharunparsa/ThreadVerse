@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import { Types } from "mongoose";
-import { ErrorReport } from "../models/ErrorReport.ts";
-import { ErrorAnswer } from "../models/ErrorAnswer.ts";
-import { ErrorVote } from "../models/ErrorVote.ts";
+import { ErrorReport } from "../models/ErrorReport.js";
+import { ErrorAnswer } from "../models/ErrorAnswer.js";
+import { ErrorVote } from "../models/ErrorVote.js";
 
 export async function createErrorReport(req: Request, res: Response) {
   try {
@@ -208,7 +208,7 @@ export async function acceptAnswer(req: Request, res: Response) {
       return res.status(403).json({ message: "Only the report author can accept answers" });
     }
 
-    report.acceptedAnswerId = answer._id;
+    (report as any).acceptedAnswerId = answer._id;
     report.status = "resolved";
     answer.isAccepted = true;
 

@@ -92,12 +92,14 @@ export const recalculateTrustLevel = asyncHandler(
 
     // Validate ObjectId
     if (!Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: "Invalid user ID" });
+      res.status(400).json({ error: "Invalid user ID" });
+      return;
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      res.status(404).json({ error: "User not found" });
+      return;
     }
 
     const updatedTrustLevel = await calculateAndUpdateTrustLevel(userId);
