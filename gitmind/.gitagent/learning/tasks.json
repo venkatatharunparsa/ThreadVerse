@@ -23,6 +23,14 @@
       "attempts": 1,
       "status": "active",
       "started_at": "2026-04-02T11:36:41.725Z"
+    },
+    {
+      "id": "2bdbc66b-cf2c-4cc2-9f5f-35d1ccec7628",
+      "objective": "Scan this repository and write MIND.md",
+      "steps": [],
+      "attempts": 1,
+      "status": "active",
+      "started_at": "2026-04-02T18:19:22.844Z"
     }
   ]
 }
