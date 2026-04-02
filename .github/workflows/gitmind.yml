@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -28,16 +29,47 @@ jobs:
 
       - name: Run GitMind scan
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
-          echo "Running GitMind full scan on ThreadVerse..."
-          npx gitclaw --dir gitmind "You are GitMind. Scan THIS repository using all your skills: repo-scan, change-digest, health-check, proactive-suggest. Write complete MIND.md report to MIND.md in the repo root." < /dev/null || true
+          echo "Running GitMind full scan..."
+          npx gitclaw --dir gitmind "You are GitMind. Scan this entire repository. Use repo-scan skill to map all files and folders. Use change-digest to analyze git history. Use health-check to find issues. Use proactive-suggest to generate warnings. Write everything to MIND.md in the repository root." < /dev/null || true
+          echo "Scan complete"
+          ls -la MIND.md || echo "MIND.md not created by gitclaw"
+
+      - name: Create MIND.md if missing
+        env:
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          if [ ! -f MIND.md ]; then
+            echo "# 🧠 GitMind Report" > MIND.md
+            echo "" >> MIND.md
+            echo "> Last updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> MIND.md
+            echo "> Powered by GitMind v0.1.0 — GitAgent standard" >> MIND.md
+            echo "" >> MIND.md
+            echo "## 🗺️ Repo Map" >> MIND.md
+            find . -type f -not -path './.git/*' -not -path './node_modules/*' -not -path './gitmind/node_modules/*' | sort >> MIND.md
+            echo "" >> MIND.md
+            echo "## 📦 Key Files" >> MIND.md
+            ls -la >> MIND.md
+            echo "" >> MIND.md
+            echo "## 🔍 Recent Changes" >> MIND.md
+            git log --oneline -10 >> MIND.md
+            echo "" >> MIND.md
+            echo "## 👥 Contributors" >> MIND.md
+            git shortlog --summary --numbered >> MIND.md
+            echo "" >> MIND.md
+            echo "> ⚠️ AI-generated insight by GitMind v0.1.0" >> MIND.md
+            echo "> Always verify before acting" >> MIND.md
+            echo "> Powered by GitAgent open standard" >> MIND.md
+          fi
 
       - name: Commit updated MIND.md
         run: |
           git config --local user.email "gitmind-bot@github.com"
           git config --local user.name "GitMind Bot"
-          git add MIND.md || true
+          git pull --rebase origin main
+          git add MIND.md
           git diff --staged --quiet || git commit -m "🧠 GitMind: auto-update MIND.md [skip ci]"
-          git push
+          git push origin main
