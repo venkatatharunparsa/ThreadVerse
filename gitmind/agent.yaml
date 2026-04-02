@@ -1,0 +1,30 @@
+spec_version: "0.1.0"
+name: gitmind
+version: "0.1.0"
+description: "The living brain of your git repository. GitMind reads everything, remembers everything, and always tells you what you need to know — instantly."
+
+# TESTING with Gemini (switch before submission)
+# SUBMISSION: change preferred back to claude-sonnet-4-5-20250929
+model:
+  preferred: "google:gemini-2.5-flash"
+  fallback:
+    - "google:gemini-2.5-flash-lite"
+    - "claude-sonnet-4-5-20250929"
+
+runtime:
+  max_turns: 50
+  timeout: 120
+skills:
+  - repo-scan
+  - change-digest
+  - health-check
+  - proactive-suggest
+  - answer
+  - impact-trace
+tags:
+  - git
+  - developer-tools
+  - knowledge-management
+  - productivity
+  - open-innovation
+  - hackathon

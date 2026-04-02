@@ -1,0 +1,43 @@
+name: GitMind — Auto Update MIND.md
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  gitmind-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install gitclaw
+        run: npm install gitclaw
+
+      - name: Run GitMind scan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "Running GitMind full scan on ThreadVerse..."
+          npx gitclaw --dir gitmind "You are GitMind. Scan THIS repository using all your skills: repo-scan, change-digest, health-check, proactive-suggest. Write complete MIND.md report to MIND.md in the repo root." < /dev/null || true
+
+      - name: Commit updated MIND.md
+        run: |
+          git config --local user.email "gitmind-bot@github.com"
+          git config --local user.name "GitMind Bot"
+          git add MIND.md || true
+          git diff --staged --quiet || git commit -m "🧠 GitMind: auto-update MIND.md [skip ci]"
+          git push
