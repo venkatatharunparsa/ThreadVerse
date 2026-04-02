@@ -173,7 +173,7 @@ jobs:
           const encodedKey = encodeURIComponent(key);
           const options = {
             hostname: 'generativelanguage.googleapis.com',
-            path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${encodedKey}`,
+            path: `/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${encodedKey}`,
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
